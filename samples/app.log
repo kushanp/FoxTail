@@ -1,0 +1,10 @@
+2026-09-04 10:00:01 INFO  FoxTail sample log — open this file to try follow-tail
+2026-09-04 10:00:02 DEBUG worker started id=1
+2026-09-04 10:00:03 INFO  listening on 0.0.0.0:8080
+2026-09-04 10:00:04 WARN  disk usage at 82%
+2026-09-04 10:00:05 ERROR failed to connect to database: timeout
+2026-09-04 10:00:06 INFO  retrying connection
+2026-09-04 10:00:07 DEBUG query cache hit
+2026-09-04 10:00:08 FATAL unhandled Exception in request pipeline
+2026-09-04 10:00:09 INFO  recovered
+2026-09-04 10:00:10 TRACE verbose internals

@@ -1,0 +1,6 @@
+/target
+
+# Keep the bundled sample even if a global ignore excludes *.log
+!samples/
+!samples/*.log
+
