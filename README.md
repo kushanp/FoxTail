@@ -28,6 +28,22 @@ The binary is `target\release\foxtail.exe`.
 
 Requires a recent Rust toolchain (1.95+). On Windows, the default `wgpu` / DirectX backend is used.
 
+## GitHub Releases
+
+Push a version tag and GitHub Actions builds a Windows x64 exe and attaches it to a Release:
+
+```bat
+git tag v0.1.0-alpha.1
+git push origin v0.1.0-alpha.1
+```
+
+Assets:
+
+- `FoxTail-<tag>-windows-x64.exe` — standalone executable
+- `FoxTail-<tag>-windows-x64.zip` — exe plus README and sample log
+
+Tags whose names contain `alpha`, `beta`, `rc`, or `pre` are marked as pre-releases. Example: `v0.1.0-alpha.1`. A tag like `v0.1.0` is a normal release.
+
 ## Usage
 
 ```bat

@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows-x64:
+    name: Build Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --locked
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          $name = "FoxTail-$version-windows-x64"
+          New-Item -ItemType Directory -Path $name | Out-Null
+          Copy-Item "target\release\foxtail.exe" "$name\foxtail.exe"
+          Copy-Item "README.md" "$name\README.md"
+          if (Test-Path "samples\app.log") {
+            New-Item -ItemType Directory -Path "$name\samples" | Out-Null
+            Copy-Item "samples\app.log" "$name\samples\app.log"
+          }
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+          Copy-Item "target\release\foxtail.exe" "$name.exe"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            FoxTail-${{ github.ref_name }}-windows-x64.zip
+            FoxTail-${{ github.ref_name }}-windows-x64.exe
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'pre') }}
