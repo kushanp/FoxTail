@@ -25,23 +25,36 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Build release
-        run: cargo build --release --locked
+      - name: Build wgpu (DirectX 12)
+        run: cargo build --locked --profile release-wgpu --features wgpu
+
+      - name: Build glow (OpenGL)
+        run: cargo build --locked --profile release-glow --no-default-features --features glow
 
       - name: Package
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}"
-          $name = "FoxTail-$version-windows-x64"
-          New-Item -ItemType Directory -Path $name | Out-Null
-          Copy-Item "target\release\foxtail.exe" "$name\foxtail.exe"
-          Copy-Item "README.md" "$name\README.md"
-          if (Test-Path "samples\app.log") {
-            New-Item -ItemType Directory -Path "$name\samples" | Out-Null
-            Copy-Item "samples\app.log" "$name\samples\app.log"
+
+          function New-FoxTailPackage {
+            param(
+              [string]$Suffix,
+              [string]$ExeSource
+            )
+            $name = "FoxTail-$version-$Suffix"
+            New-Item -ItemType Directory -Path $name | Out-Null
+            Copy-Item $ExeSource "$name\foxtail.exe"
+            Copy-Item "README.md" "$name\README.md"
+            if (Test-Path "samples\app.log") {
+              New-Item -ItemType Directory -Path "$name\samples" | Out-Null
+              Copy-Item "samples\app.log" "$name\samples\app.log"
+            }
+            Compress-Archive -Path $name -DestinationPath "$name.zip"
+            Copy-Item $ExeSource "$name.exe"
           }
-          Compress-Archive -Path $name -DestinationPath "$name.zip"
-          Copy-Item "target\release\foxtail.exe" "$name.exe"
+
+          New-FoxTailPackage -Suffix "windows-x64" -ExeSource "target\release-wgpu\foxtail.exe"
+          New-FoxTailPackage -Suffix "windows-x64-glow" -ExeSource "target\release-glow\foxtail.exe"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -49,6 +62,8 @@ jobs:
           files: |
             FoxTail-${{ github.ref_name }}-windows-x64.zip
             FoxTail-${{ github.ref_name }}-windows-x64.exe
+            FoxTail-${{ github.ref_name }}-windows-x64-glow.zip
+            FoxTail-${{ github.ref_name }}-windows-x64-glow.exe
           fail_on_unmatched_files: true
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'pre') }}

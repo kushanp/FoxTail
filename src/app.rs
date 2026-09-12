@@ -16,7 +16,7 @@ use rfd::FileDialog;
 use crate::theme::{self, FOX, FIND};
 
 pub fn run(files: Vec<PathBuf>) -> eframe::Result {
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([720.0, 420.0])
@@ -25,6 +25,14 @@ pub fn run(files: Vec<PathBuf>) -> eframe::Result {
             .with_icon(crate::icon::app_icon()),
         ..Default::default()
     };
+    #[cfg(feature = "glow")]
+    {
+        options.renderer = eframe::Renderer::Glow;
+    }
+    #[cfg(feature = "wgpu")]
+    {
+        options.renderer = eframe::Renderer::Wgpu;
+    }
     eframe::run_native(
         "FoxTail",
         options,
@@ -602,7 +610,14 @@ impl FoxTailApp {
                     ui.close();
                     self.show_help = true;
                 }
-                ui.label(RichText::new("FoxTail 0.1.0").color(theme::DIM));
+                ui.label(
+                    RichText::new(format!(
+                        "FoxTail {} ({})",
+                        env!("CARGO_PKG_VERSION"),
+                        foxtail::RENDERER
+                    ))
+                    .color(theme::DIM),
+                );
             });
         });
     }
@@ -1074,6 +1089,11 @@ impl FoxTailApp {
             .show(ui.ctx(), |ui| {
                 ui.heading("Real-time log viewer");
                 ui.label("Follow growing log files with highlighting, filters, and search.");
+                ui.label(format!(
+                    "Version {} · {} renderer",
+                    env!("CARGO_PKG_VERSION"),
+                    foxtail::RENDERER
+                ));
                 ui.separator();
                 ui.label("Ctrl+O    Open files");
                 ui.label("Ctrl+W    Close tab");

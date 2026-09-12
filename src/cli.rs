@@ -43,15 +43,17 @@ where
 
 pub fn version_text() -> String {
     format!(
-        "FoxTail {version}\n{description}\nhttps://github.com/kushanp/FoxTail\n",
+        "FoxTail {version}\n{description}\nRenderer: {renderer}\nhttps://github.com/kushanp/FoxTail\n",
         version = env!("CARGO_PKG_VERSION"),
         description = env!("CARGO_PKG_DESCRIPTION"),
+        renderer = foxtail::RENDERER,
     )
 }
 
 pub fn help_text(exe: &str) -> String {
     let version = env!("CARGO_PKG_VERSION");
     let description = env!("CARGO_PKG_DESCRIPTION");
+    let renderer = foxtail::RENDERER;
     format!(
         "\
 FoxTail {version}
@@ -69,6 +71,8 @@ Options:
 
 Follow tail, filters, find, encodings, and highlight rules are
 configured in the GUI (press F1 for keyboard shortcuts).
+
+This binary was compiled with the {renderer} renderer.
 
 Examples:
   {exe}
@@ -142,6 +146,7 @@ mod tests {
         assert!(text.contains("--version"));
         assert!(text.contains("foxtail.exe"));
         assert!(text.contains("[FILE]..."));
+        assert!(text.contains(foxtail::RENDERER));
     }
 
     #[test]
@@ -150,5 +155,6 @@ mod tests {
         assert!(text.contains("FoxTail"));
         assert!(text.contains(env!("CARGO_PKG_VERSION")));
         assert!(text.contains(env!("CARGO_PKG_DESCRIPTION")));
+        assert!(text.contains(foxtail::RENDERER));
     }
 }

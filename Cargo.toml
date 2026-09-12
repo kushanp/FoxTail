@@ -8,8 +8,23 @@ readme = "README.md"
 keywords = ["log", "tail", "viewer", "windows"]
 categories = ["command-line-utilities", "development-tools"]
 
+[features]
+default = ["wgpu"]
+# DirectX 12 via wgpu. Default; larger binary, needs a GPU / DX12.
+wgpu = ["eframe/wgpu"]
+# OpenGL via glow. Smaller binary; works with a software OpenGL driver.
+# Build with: cargo build --no-default-features --features glow
+glow = ["eframe/glow"]
+
 [dependencies]
-eframe = "0.36"
+eframe = { version = "0.36", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "links",
+    "wayland",
+    "web_screen_reader",
+    "x11",
+] }
 egui = "0.36"
 encoding_rs = "0.8"
 regex = "1"
@@ -22,3 +37,10 @@ lto = true
 codegen-units = 1
 opt-level = 3
 strip = "symbols"
+
+# Side-by-side release outputs: target/release-wgpu and target/release-glow
+[profile.release-wgpu]
+inherits = "release"
+
+[profile.release-glow]
+inherits = "release"

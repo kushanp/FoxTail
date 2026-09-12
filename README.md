@@ -2,7 +2,9 @@
 
 A real-time log file viewer for Windows.
 
-FoxTail follows growing log files the way `tail -f` does on Unix, with a GUI: multiple tabs, keyword highlighting, include/exclude filters, and search. It is a single native executable — no installer.
+FoxTail follows growing log files the way `tail -f` does on Unix, with a GUI: multiple tabs, keyword highlighting, include/exclude filters, and search. Each release is a pair of standalone executables — no installer.
+
+The rendering backend is chosen **at compile time**. A given `foxtail.exe` is either **wgpu** (DirectX 12) or **glow** (OpenGL), never both. `foxtail.exe --version` prints which one you have (`Renderer: wgpu` or `Renderer: glow`).
 
 ## Features
 
@@ -18,19 +20,18 @@ FoxTail follows growing log files the way `tail -f` does on Unix, with a GUI: mu
 - **Shared reads** — opens logs that another process is still writing
 - **Portable config** — `%APPDATA%\FoxTail\config.json`, or `foxtail.json` next to the exe / in the working directory
 
-## Build
+## Which build to run
 
-```bat
-cargo build --release
-```
+| Build | Asset name | Needs | Notes |
+| --- | --- | --- | --- |
+| **wgpu** (default) | `FoxTail-<tag>-windows-x64.exe` | Windows 10/11, DirectX 12, a GPU (integrated is fine) | Larger binary. Fails on software-only VMs and some remote-desktop sessions. |
+| **glow** | `FoxTail-<tag>-windows-x64-glow.exe` | Windows 10/11, a working OpenGL driver | Smaller binary. Prefer this if wgpu will not start, including VMs with Mesa / software OpenGL. |
 
-The binary is `target\release\foxtail.exe`.
-
-Requires a recent Rust toolchain (1.95+). On Windows, the default `wgpu` / DirectX backend is used.
+If the window never appears, the wgpu build shows an error dialog when DirectX 12 is missing; try the glow build in that case.
 
 ## GitHub Releases
 
-Push a version tag and GitHub Actions builds a Windows x64 exe and attaches it to a Release:
+Push a version tag and GitHub Actions builds **both** Windows x64 executables and attaches them to a Release:
 
 ```bat
 git tag v0.1.0-alpha.1
@@ -39,10 +40,54 @@ git push origin v0.1.0-alpha.1
 
 Assets:
 
-- `FoxTail-<tag>-windows-x64.exe` — standalone executable
-- `FoxTail-<tag>-windows-x64.zip` — exe plus README and sample log
+| File | Contents |
+| --- | --- |
+| `FoxTail-<tag>-windows-x64.exe` | wgpu executable |
+| `FoxTail-<tag>-windows-x64.zip` | wgpu exe, README, sample log |
+| `FoxTail-<tag>-windows-x64-glow.exe` | glow executable |
+| `FoxTail-<tag>-windows-x64-glow.zip` | glow exe, README, sample log |
 
 Tags whose names contain `alpha`, `beta`, `rc`, or `pre` are marked as pre-releases. Example: `v0.1.0-alpha.1`. A tag like `v0.1.0` is a normal release.
+
+## Build
+
+Requires a recent Rust toolchain (1.95+). Enable **exactly one** of the `wgpu` or `glow` features.
+
+### wgpu (default, DirectX 12)
+
+```bat
+cargo build --release
+```
+
+Writes `target\release\foxtail.exe`.
+
+To keep a wgpu exe next to a glow exe without overwriting:
+
+```bat
+cargo build-wgpu
+```
+
+Writes `target\release-wgpu\foxtail.exe` (`--profile release-wgpu --features wgpu`).
+
+### glow (OpenGL)
+
+Default features include wgpu, so glow builds must turn them off:
+
+```bat
+cargo build --release --no-default-features --features glow
+```
+
+Writes `target\release\foxtail.exe` (overwrites a wgpu `--release` output).
+
+Side-by-side:
+
+```bat
+cargo build-glow
+```
+
+Writes `target\release-glow\foxtail.exe` (`--profile release-glow --no-default-features --features glow`).
+
+`cargo build --features glow` without `--no-default-features` is an error: the two backends are mutually exclusive.
 
 ## Usage
 
@@ -56,8 +101,8 @@ foxtail.exe samples\app.log
 
 | Option | Action |
 | --- | --- |
-| `-h`, `--help` | Print usage and exit |
-| `-V`, `--version` | Print version and exit |
+| `-h`, `--help` | Print usage (includes the compiled renderer) and exit |
+| `-V`, `--version` | Print version, renderer, and project URL, then exit |
 
 Any other argument is a log file to open as a tab. Follow, filter, find, encoding, and highlight are configured in the GUI.
 
@@ -69,15 +114,18 @@ Open files from **File → Open**, from the recent-files list, or by dropping th
 | --- | --- |
 | Ctrl+O | Open files |
 | Ctrl+W | Close tab |
-| Ctrl+Tab | Next tab |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
 | Ctrl+F | Find |
 | F3 / Shift+F3 | Find next / previous |
+| Esc | Close find / go-to |
 | Ctrl+G | Go to line |
 | Ctrl+L | Toggle follow tail |
 | Ctrl+H | Highlight rules |
 | Ctrl+C | Copy selection |
+| Ctrl+A | Select all |
 | Ctrl+Home / Ctrl+End | Jump to start / follow end |
 | Ctrl++ / Ctrl+- | Font size |
+| Ctrl+0 | Reset font size |
 | F5 | Reload |
 | F1 | Help |
 

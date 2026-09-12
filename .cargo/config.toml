@@ -1,0 +1,5 @@
+[alias]
+# cargo build-wgpu  →  target/release-wgpu/foxtail.exe
+# cargo build-glow  →  target/release-glow/foxtail.exe
+build-wgpu = "build --profile release-wgpu --features wgpu"
+build-glow = "build --profile release-glow --no-default-features --features glow"

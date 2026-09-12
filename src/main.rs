@@ -83,19 +83,31 @@ fn format_startup_error(err: &eframe::Error) -> String {
         || lower.contains("adapter")
         || lower.contains("graphics")
         || lower.contains("opengl")
+        || lower.contains("glutin")
+        || lower.contains("wgl")
+        || lower.contains("egl")
+        || lower.contains("glow")
         || lower.contains("vulkan")
         || lower.contains("dx12")
         || lower.contains("surface");
 
     if gpu_failure {
-        format!(
-            "FoxTail could not start because this PC has no usable graphics adapter.\n\n\
-             FoxTail needs DirectX 12 on Windows 10 or 11, with a GPU (integrated is fine) \
-             or a VM that exposes one. Software-only VMs and some remote-desktop sessions will fail.\n\n\
-             Details:\n{details}"
-        )
+        format!("{}\n\nDetails:\n{details}", graphics_requirement_hint())
     } else {
         format!("FoxTail could not start.\n\n{details}")
+    }
+}
+
+fn graphics_requirement_hint() -> &'static str {
+    if cfg!(feature = "glow") {
+        "FoxTail could not start because OpenGL is not available.\n\n\
+         This glow build needs a working OpenGL driver on Windows 10 or 11. \
+         Integrated GPUs and software rasterizers (for example Mesa in a VM) usually work."
+    } else {
+        "FoxTail could not start because this PC has no usable graphics adapter.\n\n\
+         This wgpu build needs DirectX 12 on Windows 10 or 11, with a GPU (integrated is fine) \
+         or a VM that exposes one. Software-only VMs and some remote-desktop sessions will fail. \
+         If you have OpenGL but not DirectX 12, use the glow build instead."
     }
 }
 
