@@ -1,4 +1,5 @@
 /target
+*.ps1
 
 # Keep the bundled sample even if a global ignore excludes *.log
 !samples/
