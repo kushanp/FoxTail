@@ -47,10 +47,19 @@ Tags whose names contain `alpha`, `beta`, `rc`, or `pre` are marked as pre-relea
 ## Usage
 
 ```bat
+foxtail.exe --help
+foxtail.exe --version
 foxtail.exe
 foxtail.exe C:\logs\app.log C:\logs\access.log
 foxtail.exe samples\app.log
 ```
+
+| Option | Action |
+| --- | --- |
+| `-h`, `--help` | Print usage and exit |
+| `-V`, `--version` | Print version and exit |
+
+Any other argument is a log file to open as a tab. Follow, filter, find, encoding, and highlight are configured in the GUI.
 
 Open files from **File → Open**, from the recent-files list, or by dropping them onto the window.
 

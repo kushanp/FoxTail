@@ -15,8 +15,7 @@ use rfd::FileDialog;
 
 use crate::theme::{self, FOX, FIND};
 
-pub fn run() -> eframe::Result {
-    let files: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
+pub fn run(files: Vec<PathBuf>) -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
