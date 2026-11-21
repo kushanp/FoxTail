@@ -176,6 +176,25 @@ impl TailedFile {
         self.complete_lines + u64::from(!self.remainder.is_empty())
     }
 
+    /// Newline-terminated lines indexed so far (excludes the unfinished last line).
+    pub fn complete_line_count(&self) -> u64 {
+        self.complete_lines
+    }
+
+    /// Read finished lines even while the tail index is still building.
+    pub fn read_complete_lines(&mut self, start: u64, count: usize) -> Vec<String> {
+        let total = self.complete_lines;
+        if start >= total || count == 0 {
+            return Vec::new();
+        }
+        let count = (count as u64).min(total - start) as usize;
+        let mut out = Vec::with_capacity(count);
+        if let Err(err) = self.read_lines_from_index(start, count, &mut out) {
+            out.push(format!("<read error: {err}>"));
+        }
+        out
+    }
+
     pub fn reload(&mut self) -> io::Result<()> {
         self.file = open_shared(&self.path)?;
         self.detect_and_reset()?;
@@ -683,6 +702,8 @@ mod tests {
         let mut t = TailedFile::open(&path, 4).unwrap();
         index_all(&mut t);
         assert_eq!(t.line_count(), 2);
+        assert_eq!(t.complete_line_count(), 1);
+        assert_eq!(t.read_complete_lines(0, 10), vec!["alpha"]);
         assert_eq!(t.read_lines(0, 2), vec!["alpha", "beta"]);
         let _ = std::fs::remove_file(&path);
     }

@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{
     self, Align2, Color32, FontId, Key, Layout, PointerButton, Pos2, Rect, RichText, ScrollArea,
@@ -9,6 +9,7 @@ use foxtail::config::Config;
 use foxtail::engine::{EncodingKind, TailedFile};
 use foxtail::filter::{CompiledFilter, LineFilter};
 use foxtail::highlight::Highlighter;
+use foxtail::stats::{self, CompiledCounters, CounterDef};
 use foxtail::util::{format_bytes, format_count};
 use regex::RegexBuilder;
 use rfd::FileDialog;
@@ -56,6 +57,9 @@ struct Tab {
     scroll_to: Option<u64>,
     seen_lines: u64,
     status: Option<String>,
+    stats_scan: u64,
+    stats_matches: Vec<u64>,
+    stats_lines: Vec<u64>,
 }
 
 impl Tab {
@@ -77,6 +81,9 @@ impl Tab {
             scroll_to: None,
             seen_lines: 0,
             status: None,
+            stats_scan: 0,
+            stats_matches: Vec::new(),
+            stats_lines: Vec::new(),
         }
     }
 
@@ -84,6 +91,32 @@ impl Tab {
         self.compiled = self.filter.compile();
         self.filter_matches.clear();
         self.filter_scan = 0;
+    }
+
+    fn reset_stats(&mut self, n: usize) {
+        self.stats_scan = 0;
+        self.stats_matches = vec![0; n];
+        self.stats_lines = vec![0; n];
+    }
+
+    fn pump_stats(&mut self, compiled: &CompiledCounters, budget: usize) {
+        if !compiled.has_work() {
+            return;
+        }
+        if self.stats_matches.len() != compiled.len() {
+            self.reset_stats(compiled.len());
+        }
+        let total = self.engine.complete_line_count();
+        if self.stats_scan >= total {
+            return;
+        }
+        let end = (self.stats_scan + budget as u64).min(total);
+        let n = (end - self.stats_scan) as usize;
+        let lines = self.engine.read_complete_lines(self.stats_scan, n);
+        for line in &lines {
+            compiled.accumulate(line, &mut self.stats_matches, &mut self.stats_lines);
+        }
+        self.stats_scan = end;
     }
 
     fn view_count(&self) -> u64 {
@@ -131,6 +164,9 @@ struct FoxTailApp {
     goto_text: String,
     status: String,
     applied_on_top: bool,
+    counters: Vec<CounterDef>,
+    compiled_counters: CompiledCounters,
+    stats_edit_at: Option<Instant>,
 }
 
 impl FoxTailApp {
@@ -151,6 +187,9 @@ impl FoxTailApp {
             goto_text: String::new(),
             status: "Open a log file to start tailing.".into(),
             applied_on_top: false,
+            counters: Vec::new(),
+            compiled_counters: CompiledCounters::new(&[]),
+            stats_edit_at: None,
         };
         for path in files {
             app.open_path(path);
@@ -188,7 +227,9 @@ impl FoxTailApp {
             Ok(engine) => {
                 self.config.remember_file(&path);
                 let follow = self.config.follow_tail;
-                self.tabs.push(Tab::new(engine, follow));
+                let mut tab = Tab::new(engine, follow);
+                tab.reset_stats(self.counters.len());
+                self.tabs.push(tab);
                 self.active = self.tabs.len() - 1;
                 self.status = format!("Opened {}", path.display());
             }
@@ -219,6 +260,117 @@ impl FoxTailApp {
     fn rebuild_highlighter(&mut self) {
         self.highlighter = Highlighter::new(&self.config.highlight_rules);
         self.config.save();
+    }
+
+    fn rebuild_counters(&mut self, recount: bool) {
+        self.compiled_counters = CompiledCounters::new(&self.counters);
+        if recount {
+            let n = self.counters.len();
+            for tab in &mut self.tabs {
+                tab.reset_stats(n);
+            }
+        }
+        self.stats_edit_at = None;
+    }
+
+    fn counters_dialog_dir(&self) -> PathBuf {
+        if let Some(path) = &self.config.last_counters_path {
+            if let Some(dir) = path.parent() {
+                if dir.exists() {
+                    return dir.to_path_buf();
+                }
+            }
+        }
+        let dir = stats::default_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+
+    fn load_counters_dialog(&mut self) {
+        let mut dlg = FileDialog::new()
+            .add_filter("FoxTail counters", &["json"])
+            .add_filter("All files", &["*"])
+            .set_directory(self.counters_dialog_dir());
+        if let Some(path) = &self.config.last_counters_path {
+            dlg = dlg.set_file_name(
+                path.file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "counters.json".into()),
+            );
+        }
+        let Some(path) = dlg.pick_file() else {
+            return;
+        };
+        match stats::load_from(&path) {
+            Ok(defs) => {
+                self.counters = defs;
+                self.config.last_counters_path = Some(path.clone());
+                self.config.save();
+                self.rebuild_counters(true);
+                self.status = format!("Loaded counters from {}", path.display());
+            }
+            Err(err) => {
+                self.status = format!("Failed to load counters: {err}");
+            }
+        }
+    }
+
+    fn save_counters(&mut self, save_as: bool) {
+        let path = if save_as {
+            None
+        } else {
+            self.config.last_counters_path.clone()
+        };
+        let path = match path {
+            Some(p) => p,
+            None => {
+                let mut dlg = FileDialog::new()
+                    .add_filter("FoxTail counters", &["json"])
+                    .add_filter("All files", &["*"])
+                    .set_directory(self.counters_dialog_dir())
+                    .set_file_name("counters.json");
+                if let Some(existing) = &self.config.last_counters_path {
+                    dlg = dlg.set_file_name(
+                        existing
+                            .file_name()
+                            .map(|s| s.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "counters.json".into()),
+                    );
+                }
+                let Some(p) = dlg.save_file() else {
+                    return;
+                };
+                p
+            }
+        };
+        match stats::save_to(&path, &self.counters) {
+            Ok(()) => {
+                self.config.last_counters_path = Some(path.clone());
+                self.config.save();
+                self.status = format!("Saved counters to {}", path.display());
+            }
+            Err(err) => {
+                self.status = format!("Failed to save counters: {err}");
+            }
+        }
+    }
+
+    fn stats_summary(&self) -> String {
+        let tab = self.tabs.get(self.active);
+        let mut parts = Vec::new();
+        for (i, def) in self.counters.iter().enumerate() {
+            if !def.enabled || def.pattern.is_empty() || self.compiled_counters.is_invalid(i) {
+                continue;
+            }
+            let n = tab
+                .and_then(|t| t.stats_matches.get(i).copied())
+                .unwrap_or(0);
+            parts.push(format!("{} {}", def.display_name(), format_count(n)));
+            if parts.len() == 3 {
+                break;
+            }
+        }
+        parts.join(" · ")
     }
 
     fn handle_dropped(&mut self, ui: &Ui) {
@@ -258,6 +410,10 @@ impl FoxTailApp {
         if ctrl && press(ui, Key::H) {
             self.show_highlights = !self.show_highlights;
         }
+        if ctrl && shift && press(ui, Key::S) {
+            self.config.show_stats = !self.config.show_stats;
+            self.config.save();
+        }
         if ctrl && press(ui, Key::G) {
             self.show_goto = true;
             self.goto_needs_focus = true;
@@ -274,10 +430,12 @@ impl FoxTailApp {
             self.show_help = !self.show_help;
         }
         if press(ui, Key::F5) {
+            let n = self.counters.len();
             if let Some(tab) = self.active_tab() {
                 match tab.engine.reload() {
                     Ok(()) => {
                         tab.reset_filter_scan();
+                        tab.reset_stats(n);
                         tab.status = Some("Reloaded".into());
                     }
                     Err(err) => tab.status = Some(format!("Reload failed: {err}")),
@@ -416,12 +574,20 @@ impl eframe::App for FoxTailApp {
         if ctx.input(|i| i.viewport().close_requested()) {
             self.config.save();
         }
+        if let Some(at) = self.stats_edit_at {
+            if at.elapsed() >= Duration::from_millis(400) {
+                self.rebuild_counters(true);
+            }
+        }
+        let compiled = &self.compiled_counters;
+        let n_counters = self.counters.len();
         for tab in &mut self.tabs {
             let was_indexed = tab.engine.is_index_complete();
             match tab.engine.poll() {
                 Ok(result) => {
                     if result.truncated {
                         tab.reset_filter_scan();
+                        tab.reset_stats(n_counters);
                         tab.status = Some("File truncated / rotated — reindexed".into());
                     }
                     if !was_indexed && tab.engine.is_index_complete() {
@@ -429,11 +595,13 @@ impl eframe::App for FoxTailApp {
                     }
                     if result.new_lines > 0 || result.grew {
                         tab.pump_filter(8_000);
+                        tab.pump_stats(compiled, 8_000);
                     }
                 }
                 Err(err) => tab.status = Some(format!("I/O: {err}")),
             }
             tab.pump_filter(4_000);
+            tab.pump_stats(compiled, 4_000);
         }
         if let Some(tab) = self.tabs.get_mut(self.active) {
             tab.seen_lines = tab.engine.view_line_count();
@@ -473,6 +641,10 @@ impl eframe::App for FoxTailApp {
         egui::Panel::bottom("status").show(ui, |ui| {
             self.status_bar(ui);
         });
+
+        if self.config.show_stats {
+            self.stats_panel(ui);
+        }
 
         egui::CentralPanel::default().show(ui, |ui| {
             if self.tabs.is_empty() {
@@ -521,9 +693,11 @@ impl FoxTailApp {
                 ui.separator();
                 if ui.button("Reload\tF5").clicked() {
                     ui.close();
+                    let n = self.counters.len();
                     if let Some(tab) = self.active_tab() {
                         let _ = tab.engine.reload();
                         tab.reset_filter_scan();
+                        tab.reset_stats(n);
                     }
                 }
                 ui.separator();
@@ -592,6 +766,14 @@ impl FoxTailApp {
                 }
                 if ui.button("Reset zoom\tCtrl+0").clicked() {
                     self.config.font_size = 13.0;
+                }
+                ui.separator();
+                if ui
+                    .checkbox(&mut self.config.show_stats, "Statistics")
+                    .on_hover_text("Ctrl+Shift+S")
+                    .changed()
+                {
+                    self.config.save();
                 }
             });
             ui.menu_button("Highlight", |ui| {
@@ -702,6 +884,7 @@ impl FoxTailApp {
             }
 
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                let n_counters = self.counters.len();
                 let mut enc = self
                     .tabs
                     .get(self.active)
@@ -720,6 +903,7 @@ impl FoxTailApp {
                             tab.status = Some(format!("Encoding: {err}"));
                         } else {
                             tab.reset_filter_scan();
+                            tab.reset_stats(n_counters);
                         }
                     }
                 }
@@ -818,6 +1002,11 @@ impl FoxTailApp {
     }
 
     fn status_bar(&mut self, ui: &mut Ui) {
+        let summary = if !self.config.show_stats {
+            self.stats_summary()
+        } else {
+            String::new()
+        };
         ui.horizontal(|ui| {
             if let Some(tab) = self.tabs.get(self.active) {
                 ui.label(tab.engine.path().display().to_string());
@@ -855,6 +1044,10 @@ impl FoxTailApp {
                     ui.colored_label(FOX, "Following");
                 } else {
                     ui.label(RichText::new("Paused").color(theme::DIM));
+                }
+                if !summary.is_empty() {
+                    ui.separator();
+                    ui.label(RichText::new(summary).color(FOX));
                 }
                 if let Some(msg) = &tab.status {
                     ui.separator();
@@ -996,6 +1189,189 @@ impl FoxTailApp {
         }
     }
 
+    fn stats_panel(&mut self, ui: &mut Ui) {
+        let mut load = false;
+        let mut save = false;
+        let mut save_as = false;
+        let mut add = false;
+        let mut reset_counts = false;
+        let mut remove = None;
+        let mut recount = false;
+        let mut pattern_edited = false;
+
+        let max_h = (ui.available_height() * 0.45).clamp(120.0, 420.0);
+        egui::Panel::bottom("stats")
+            .resizable(true)
+            .default_size(176.0)
+            .min_size(100.0)
+            .max_size(max_h)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.strong("Statistics");
+                    ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Save as…").clicked() {
+                            save_as = true;
+                        }
+                        if ui.button("Save").clicked() {
+                            save = true;
+                        }
+                        if ui.button("Load…").clicked() {
+                            load = true;
+                        }
+                        if ui.button("Reset counts").clicked() {
+                            reset_counts = true;
+                        }
+                        if ui.button("Add counter").clicked() {
+                            add = true;
+                        }
+                    });
+                });
+                ui.horizontal(|ui| {
+                    let status = if let Some(tab) = self.tabs.get(self.active) {
+                        let total = tab.engine.complete_line_count();
+                        if self.compiled_counters.has_work() && tab.stats_scan < total {
+                            RichText::new("scanning…").color(FOX)
+                        } else {
+                            RichText::new(format!("{} complete lines", format_count(total)))
+                                .color(theme::DIM)
+                        }
+                    } else {
+                        RichText::new("Open a log to count matches").color(theme::DIM)
+                    };
+                    ui.label(status);
+                });
+
+                let n = self.counters.len();
+                let matches_col: Vec<u64> = (0..n)
+                    .map(|i| {
+                        self.tabs
+                            .get(self.active)
+                            .and_then(|t| t.stats_matches.get(i).copied())
+                            .unwrap_or(0)
+                    })
+                    .collect();
+                let lines_col: Vec<u64> = (0..n)
+                    .map(|i| {
+                        self.tabs
+                            .get(self.active)
+                            .and_then(|t| t.stats_lines.get(i).copied())
+                            .unwrap_or(0)
+                    })
+                    .collect();
+
+                let grid_h = ui.available_height();
+                ScrollArea::vertical()
+                    .id_salt("stats_scroll")
+                    .auto_shrink([false, false])
+                    .max_height(grid_h)
+                    .animated(false)
+                    .stick_to_bottom(false)
+                    .show(ui, |ui| {
+                        egui::Grid::new("stats_grid")
+                            .num_columns(7)
+                            .striped(true)
+                            .spacing([8.0, 4.0])
+                            .min_col_width(16.0)
+                            .show(ui, |ui| {
+                                ui.label(RichText::new("On").color(theme::DIM));
+                                ui.label(RichText::new("Name").color(theme::DIM));
+                                ui.label(RichText::new("Pattern").color(theme::DIM));
+                                ui.label(RichText::new("Aa").color(theme::DIM));
+                                ui.label(RichText::new("Matches").color(theme::DIM));
+                                ui.label(RichText::new("Lines").color(theme::DIM));
+                                ui.label("");
+                                ui.end_row();
+
+                                for i in 0..n {
+                                    let invalid = self.compiled_counters.is_invalid(i);
+                                    let def = &mut self.counters[i];
+
+                                    if ui.checkbox(&mut def.enabled, "").changed() {
+                                        recount = true;
+                                    }
+                                    ui.add(
+                                        TextEdit::singleline(&mut def.name)
+                                            .id_salt(("stats_name", i))
+                                            .desired_width(140.0)
+                                            .hint_text("optional name"),
+                                    );
+                                    let pat = ui.add(
+                                        TextEdit::singleline(&mut def.pattern)
+                                            .id_salt(("stats_pat", i))
+                                            .desired_width(280.0)
+                                            .hint_text("regex")
+                                            .text_color(if invalid {
+                                                Color32::from_rgb(230, 80, 80)
+                                            } else {
+                                                theme::TEXT
+                                            }),
+                                    );
+                                    if pat.changed() {
+                                        pattern_edited = true;
+                                    }
+                                    if pat.lost_focus() {
+                                        recount = true;
+                                    }
+                                    if ui
+                                        .toggle_value(&mut def.case_sensitive, "Aa")
+                                        .on_hover_text("Case sensitive")
+                                        .changed()
+                                    {
+                                        recount = true;
+                                    }
+                                    stats_count_cell(ui, matches_col[i], true);
+                                    stats_count_cell(ui, lines_col[i], false);
+                                    if ui.small_button("✕").clicked() {
+                                        remove = Some(i);
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+
+                        if n == 0 {
+                            ui.label(
+                                RichText::new(
+                                    "Add a regex counter to tally matches in the active log. Save the set as JSON under Documents\\FoxTail.",
+                                )
+                                .color(theme::DIM),
+                            );
+                        }
+                    });
+            });
+
+        if add {
+            self.counters.push(CounterDef::new());
+            recount = true;
+        }
+        if let Some(i) = remove {
+            if i < self.counters.len() {
+                self.counters.remove(i);
+                recount = true;
+            }
+        }
+        if pattern_edited {
+            self.stats_edit_at = Some(Instant::now());
+        }
+        if recount {
+            self.rebuild_counters(true);
+        }
+        if reset_counts {
+            let n = self.counters.len();
+            if let Some(tab) = self.active_tab() {
+                tab.reset_stats(n);
+            }
+        }
+        if load {
+            self.load_counters_dialog();
+        }
+        if save {
+            self.save_counters(false);
+        }
+        if save_as {
+            self.save_counters(true);
+        }
+    }
+
     fn highlight_window(&mut self, ui: &mut Ui) {
         if !self.show_highlights {
             return;
@@ -1088,7 +1464,7 @@ impl FoxTailApp {
             .resizable(false)
             .show(ui.ctx(), |ui| {
                 ui.heading("Real-time log viewer");
-                ui.label("Follow growing log files with highlighting, filters, and search.");
+                ui.label("Follow growing log files with highlighting, filters, statistics, and search.");
                 ui.label(format!(
                     "Version {} · {} renderer",
                     env!("CARGO_PKG_VERSION"),
@@ -1103,6 +1479,7 @@ impl FoxTailApp {
                 ui.label("Ctrl+G    Go to line");
                 ui.label("Ctrl+L    Toggle follow tail");
                 ui.label("Ctrl+H    Highlight rules");
+                ui.label("Ctrl+Shift+S  Statistics");
                 ui.label("Ctrl+C    Copy selection");
                 ui.label("F5        Reload");
                 ui.label("Drop files onto the window to open them.");
@@ -1143,6 +1520,20 @@ impl FoxTailApp {
     }
 }
 
+fn stats_count_cell(ui: &mut Ui, n: u64, strong: bool) {
+    ui.allocate_ui_with_layout(
+        Vec2::new(88.0, ui.spacing().interact_size.y),
+        Layout::right_to_left(egui::Align::Center),
+        |ui| {
+            let mut text = RichText::new(format_count(n)).monospace();
+            if strong {
+                text = text.strong();
+            }
+            ui.label(text);
+        },
+    );
+}
+
 fn draw_empty(ui: &mut Ui) {
     ui.centered_and_justified(|ui| {
         ui.vertical_centered(|ui| {
@@ -1153,7 +1544,7 @@ fn draw_empty(ui: &mut Ui) {
             ui.label("or drop log files onto this window.");
             ui.add_space(8.0);
             ui.label(
-                RichText::new("Follow tail · highlighting · include/exclude · search")
+                RichText::new("Follow tail · highlighting · include/exclude · statistics · search")
                     .color(theme::DIM)
                     .italics(),
             );

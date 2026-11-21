@@ -27,6 +27,10 @@ pub struct Config {
     pub highlight_rules: Vec<HighlightRule>,
     #[serde(default)]
     pub recent_files: Vec<PathBuf>,
+    #[serde(default)]
+    pub show_stats: bool,
+    #[serde(default)]
+    pub last_counters_path: Option<PathBuf>,
 }
 
 fn default_font_size() -> f32 {
@@ -54,6 +58,8 @@ impl Default for Config {
             poll_ms: default_poll_ms(),
             highlight_rules: default_rules(),
             recent_files: Vec::new(),
+            show_stats: false,
+            last_counters_path: None,
         }
     }
 }

@@ -1,4 +1,4 @@
-//! FoxTail library: file tailing engine, highlighting, filters, and config.
+//! FoxTail library: file tailing engine, highlighting, filters, stats, and config.
 
 #[cfg(all(feature = "wgpu", feature = "glow"))]
 compile_error!(
@@ -20,4 +20,5 @@ pub mod config;
 pub mod engine;
 pub mod filter;
 pub mod highlight;
+pub mod stats;
 pub mod util;

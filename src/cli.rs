@@ -69,8 +69,8 @@ Options:
   -h, --help       Print this help and exit
   -V, --version    Print version information and exit
 
-Follow tail, filters, find, encodings, and highlight rules are
-configured in the GUI (press F1 for keyboard shortcuts).
+Follow tail, filters, find, encodings, highlight rules, and
+statistics are configured in the GUI (press F1 for keyboard shortcuts).
 
 This binary was compiled with the {renderer} renderer.
 

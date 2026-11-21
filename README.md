@@ -2,7 +2,7 @@
 
 A real-time log file viewer for Windows.
 
-FoxTail follows growing log files the way `tail -f` does on Unix, with a GUI: multiple tabs, keyword highlighting, include/exclude filters, and search. Each release is a pair of standalone executables — no installer.
+FoxTail follows growing log files the way `tail -f` does on Unix, with a GUI: multiple tabs, keyword highlighting, include/exclude filters, regex counters, and search. Each release is a pair of standalone executables — no installer.
 
 The rendering backend is chosen **at compile time**. A given `foxtail.exe` is either **wgpu** (DirectX 12) or **glow** (OpenGL), never both. `foxtail.exe --version` prints which one you have (`Renderer: wgpu` or `Renderer: glow`).
 
@@ -14,6 +14,7 @@ The rendering backend is chosen **at compile time**. A given `foxtail.exe` is ei
 - **Multiple files** — tabs, with an orange marker when an inactive tab has new lines
 - **Highlight rules** — first-match-wins colouring, substring or regex
 - **Filter tail** — include and/or exclude lines (literal or regex)
+- **Statistics** — named regex counters, live match totals in a grid, save/load JSON under `Documents\FoxTail`
 - **Find** — incremental search, regex, next/previous
 - **Encodings** — UTF-8 (BOM), UTF-16 LE/BE, ANSI (Windows-1252)
 - **Line endings** — CRLF, LF, and CR
@@ -104,7 +105,7 @@ foxtail.exe samples\app.log
 | `-h`, `--help` | Print usage (includes the compiled renderer) and exit |
 | `-V`, `--version` | Print version, renderer, and project URL, then exit |
 
-Any other argument is a log file to open as a tab. Follow, filter, find, encoding, and highlight are configured in the GUI.
+Any other argument is a log file to open as a tab. Follow, filter, find, encoding, highlight, and statistics are configured in the GUI.
 
 Open files from **File → Open**, from the recent-files list, or by dropping them onto the window.
 
@@ -121,6 +122,7 @@ Open files from **File → Open**, from the recent-files list, or by dropping th
 | Ctrl+G | Go to line |
 | Ctrl+L | Toggle follow tail |
 | Ctrl+H | Highlight rules |
+| Ctrl+Shift+S | Statistics panel |
 | Ctrl+C | Copy selection |
 | Ctrl+A | Select all |
 | Ctrl+Home / Ctrl+End | Jump to start / follow end |
@@ -134,6 +136,25 @@ Scrolling up pauses follow. Turn **Follow tail** back on (or press Ctrl+End) to 
 ## Highlighting
 
 Rules are evaluated top to bottom; the first match paints the whole line. Default rules colour `ERROR` / `FATAL`, `WARN`, `INFO`, `DEBUG` / `TRACE`, and common failure words. Edit them under **Highlight → Highlight rules**.
+
+## Statistics
+
+Each counter is a regex plus an optional name. FoxTail counts every non-overlapping match on every complete line of the **active** log (the include/exclude filter does not change the totals). Two hits on one line add 2.
+
+Show the grid with **View → Statistics** (Ctrl+Shift+S). Columns: enabled, name, pattern, case sensitivity, match count, lines that had at least one match.
+
+**Load…** / **Save** / **Save as…** write the counter *definitions* (not live totals) as JSON. The file dialog starts in `%USERPROFILE%\Documents\FoxTail` (created on first save), or in the folder of the last file you used.
+
+```json
+{
+  "version": 1,
+  "counters": [
+    { "name": "Errors", "pattern": "\\bERROR\\b", "case_sensitive": false, "enabled": true }
+  ]
+}
+```
+
+Counts reset when that tab's file is truncated, reloaded, or re-encoded.
 
 ## License
 
